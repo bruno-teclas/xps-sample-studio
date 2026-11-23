@@ -1,0 +1,61 @@
+name: Build macOS e Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest        # Apple Silicon (M1/M2/M3/M4)
+            name: macOS-AppleSilicon
+          - os: macos-15-intel      # Mac Intel
+            name: macOS-Intel
+          - os: windows-latest
+            name: Windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+      - name: Testes
+        run: python -m pytest -q tests
+      - name: Empacotar
+        run: pyinstaller --noconfirm --clean packaging/XPSSampleStudio.spec
+      - name: DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xattr -cr "dist/XPS Sample Studio.app" || true
+          codesign --force --deep -s - "dist/XPS Sample Studio.app"
+          hdiutil create -volname "XPS Sample Studio" -srcfolder "dist/XPS Sample Studio.app" -ov -format UDZO "dist/XPS-Sample-Studio-${{ matrix.name }}.dmg"
+      - name: ZIP (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/XPS Sample Studio" -DestinationPath "dist/XPS-Sample-Studio-Windows.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XPS-Sample-Studio-${{ matrix.name }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+      - name: Publicar na página de Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: XPS Sample Studio ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            dist/*.dmg
+            dist/*.zip
