@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
             b.setIcon(icon(ic, T.MUTED))
             b.setIconSize(qsize(17))
             b.setCheckable(True)
-            b.clicked.connect(lambda _=False, i=k: self.go(i))
+            b.toggled.connect(lambda on, i=k: on and self.go(i))
             grp.addButton(b)
             v.addWidget(b)
             self.nav.append(b)
