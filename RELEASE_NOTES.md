@@ -1,3 +1,9 @@
+## Novidades da 1.1
+
+- **Criador de instrumentos:** monte multisamples com camadas de velocidade, envelope ADSR, editor de amostra (loop automático, detecção de nota, fades, normalizar) e exporte para **XPS-10X (.svz), Kontakt (.nki), SoundFont (.sf2) e SFZ**.
+- “Editar no Criador” para qualquer NKI/SF2/SFZ importado.
+- Visual novo: ícones, fonte Inter e barra lateral com seções Converter/Criar.
+
 ## Downloads
 
 | Sistema | Arquivo |

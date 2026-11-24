@@ -301,6 +301,109 @@ def test_svz_export_structure():
             assert chunk[8] == 1 and Zl.crc32(chunk) == crc
 
 
+def _builder_instrument(d):
+    """Instrumento com 2 camadas de velocidade, uma delas estéreo, com loop."""
+    from xps_studio.core.model import Group, Instrument, Sample, Zone
+    inst = Instrument("Teste Camadas")
+    inst.groups = [Group("Suave", attack=0.01, release=0.4), Group("Forte", gain_db=-2, sustain=0.7)]
+    for gi in (0, 1):
+        for n in (48, 60, 72):
+            f = 440 * 2 ** ((n - 69) / 12)
+            data = _tone(f, 0.8, 44100, 2 if gi else 1) * (0.4 if gi == 0 else 0.8)
+            smp = Sample(f"S{gi}_{n}", data, 44100, 8000, 30000)
+            z = Zone(smp, root=n, lo_vel=1 if gi == 0 else 81, hi_vel=80 if gi == 0 else 127,
+                     loop_on=True, group=gi)
+            inst.zones.append(z)
+    from xps_studio.core.editing import auto_ranges
+    for gi in (0, 1):
+        auto_ranges([z for z in inst.zones if z.group == gi])
+    return inst
+
+
+def test_export_sf2_roundtrip():
+    from xps_studio.core.exporters import write_sf2
+    with tempfile.TemporaryDirectory() as d:
+        inst = _builder_instrument(d)
+        p = write_sf2(inst, os.path.join(d, "teste.sf2"))
+        back = load_instrument(p)
+        assert len(back.zones) == 6, len(back.zones)       # par estéreo volta como 1 zona
+        roots = sorted((z.root, z.lo_vel, z.hi_vel, z.sample.channels) for z in back.zones)
+        assert roots[0] == (48, 1, 80, 1) and (48, 81, 127, 2) in roots
+        assert all(z.loop_on and z.sample.loop_start == 8000 for z in back.zones)
+        try:
+            from sf2utils.sf2parse import Sf2File
+        except ImportError:
+            return
+        with open(p, "rb") as f:
+            sf = Sf2File(f)
+            assert sf.presets[0].name == "Teste Camadas"
+            assert len([s for s in sf.samples if s.name != "EOS"]) == 9   # 3 mono + 3 pares estéreo
+
+
+def test_export_nki_roundtrip():
+    from xps_studio.core.exporters import write_nki
+    with tempfile.TemporaryDirectory() as d:
+        inst = _builder_instrument(d)
+        p = write_nki(inst, os.path.join(d, "Teste.nki"))
+        with open(p, "rb") as f:
+            head = f.read(4)
+        assert head == bytes.fromhex("5ee56eb3")
+        back = load_instrument(p)
+        assert len(back.zones) == 6
+        assert sorted(z.root for z in back.zones) == [48, 48, 60, 60, 72, 72]
+        assert {(z.lo_vel, z.hi_vel) for z in back.zones} == {(1, 80), (81, 127)}
+        assert all(z.loop_on for z in back.zones)
+
+
+def test_export_sfz_roundtrip():
+    from xps_studio.core.exporters import write_sfz
+    with tempfile.TemporaryDirectory() as d:
+        inst = _builder_instrument(d)
+        back = load_instrument(write_sfz(inst, os.path.join(d, "teste.sfz")))
+        assert len(back.zones) == 6 and all(z.loop_on for z in back.zones)
+
+
+def test_export_svz_layers():
+    from xps_studio.core import svz as Z
+    from xps_studio.core.exporters import write_svz
+    with tempfile.TemporaryDirectory() as d:
+        inst = _builder_instrument(d)
+        for stereo in (False, True):
+            p, warn = write_svz(inst, os.path.join(d, f"t{stereo}.SVZ"), stereo)
+            data = open(p, "rb").read()
+            info = Z.read_container(data)
+            nl = 4 if stereo else 2
+            assert info["blocks"]["MSPa"]["count"] == nl
+            tone = Z.records(data, info, "PATa")[0]
+            for p_ in range(nl):
+                assert tone[0xDF + p_ * 0x7C] == 3
+                assert struct.unpack_from("<H", tone, 0xE2 + p_ * 0x7C)[0] == p_ + 1
+            vel = [(tone[0xA0 + p_ * 0x0C], tone[0xA1 + p_ * 0x0C]) for p_ in range(nl)]
+            assert vel[0] == (1, 80) and vel[-1] == (81, 127)
+
+
+def test_pitch_and_loop_tools():
+    from xps_studio.core import editing as ED
+    for f0, note in ((110, 45), (261.63, 60), (880, 81)):
+        x = _tone(f0, 1.0, 44100)
+        n, cents, conf = ED.detect_pitch(x, 44100)
+        assert n == note and abs(cents) < 10
+    lp = ED.find_loop(_tone(220, 2.0, 44100), 44100)
+    assert lp and lp[1] - lp[0] > 44100 * 0.25
+
+
+def test_project_roundtrip():
+    from xps_studio.core.project import load_project, save_project
+    with tempfile.TemporaryDirectory() as d:
+        inst = _builder_instrument(d)
+        inst.zones[0].start, inst.zones[0].reverse = 100, True
+        p = save_project(inst, os.path.join(d, "meu"))
+        back = load_project(p)
+        assert [g.name for g in back.groups] == ["Suave", "Forte"]
+        assert back.zones[0].start == 100 and back.zones[0].reverse
+        assert back.zones[3].sample.channels == 2 and back.zones[0].sample.loop_start == 8000
+
+
 if __name__ == "__main__":  # noqa
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

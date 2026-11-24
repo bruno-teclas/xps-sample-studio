@@ -7,7 +7,7 @@ excludes = ["tkinter", "matplotlib", "pkg_resources", "setuptools", "PySide6.QtW
 
 a = Analysis([os.path.join(ROOT, "run.py")], pathex=[ROOT],
              datas=[(os.path.join(ROOT, "xps_studio", "assets"), os.path.join("xps_studio", "assets"))],
-             hiddenimports=["PySide6.QtMultimedia", "scipy.signal", "scipy.special._cdflib", "importlib.resources", "importlib.metadata", "scipy.stats._sobol", "scipy._lib.messagestream"],
+             hiddenimports=["PySide6.QtMultimedia", "PySide6.QtSvg", "scipy.signal", "scipy.special._cdflib", "importlib.resources", "importlib.metadata", "scipy.stats._sobol", "scipy._lib.messagestream"],
              excludes=excludes, noarchive=False)
 pyz = PYZ(a.pure)
 icon = os.path.join(SPECPATH, "icon.icns" if sys.platform == "darwin" else "icon.ico")

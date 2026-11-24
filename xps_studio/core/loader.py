@@ -15,10 +15,11 @@ FILTER = "Instrumentos (*.sf2 *.nki *.sfz *.wav *.aif *.aiff)"
 
 def _note_from_name(name: str) -> Optional[int]:
     stem = os.path.splitext(os.path.basename(name))[0]
-    m = re.findall(r"(?<![A-Za-z])([A-Ga-g][#b]?-?\d)(?![0-9])", stem)
+    m = re.findall(r"(?<![A-Za-z])([A-Ga-g](?:#|b|s|sharp)?-?\d)(?![0-9])", stem)
     if m:
         try:
-            return parse_note(m[-1])
+            v = re.sub(r"(?<=[A-Ga-g])(?:s|sharp)(?=-?\d)", "#", m[-1])
+            return parse_note(v)
         except ValueError:
             pass
     m = re.findall(r"(?<!\d)(\d{2,3})(?!\d)", stem)

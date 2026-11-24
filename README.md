@@ -1,10 +1,29 @@
 # XPS Sample Studio
 
-Conversor com interface gráfica que transforma instrumentos do **Kontakt (.nki)**, **SoundFont (.sf2)**,
+Conversor **e criador de instrumentos** com interface gráfica que transforma instrumentos do **Kontakt (.nki)**, **SoundFont (.sf2)**,
 **SFZ** e pastas de **WAV** em amostras prontas para o **Roland XPS-10X** (e também para o XPS-10 antigo).
 Funciona no **macOS** (Apple Silicon e Intel) e no **Windows**.
 
 ## O que ele faz
+
+### Criador de instrumentos (novo na 1.1)
+Monte seus próprios multisamples a partir de WAVs e exporte de forma funcional para **Roland XPS-10X (.svz)**,
+**Kontakt (.nki)**, **SoundFont (.sf2)** e **SFZ**.
+
+- **Amostras:** arraste WAV/AIFF/NCW ou pastas inteiras. A nota de cada amostra vem do nome do arquivo
+  (`Piano_C4`, `Bass_Fs2`, `Str_Eb3`, `Kick_60`) ou de **detecção automática de afinação**.
+- **Mapa tecla × velocidade** (como o Mapping Editor do Kontakt): arraste zonas para mover, arraste bordas para mudar a
+  faixa, Shift para mover na velocidade, setas para ajuste fino, zoom com Ctrl+roda, clique no teclado para ouvir.
+- **Camadas (grupos):** várias camadas com nome, volume, pan, afinação, mudo/solo e **envelope ADSR** editável
+  graficamente. “Dividir vel.” reparte 1–127 entre as camadas (camadas de velocidade).
+- **Editor de amostra:** forma de onda com zoom e marcadores arrastáveis de início, fim e loop; normalizar, inverter,
+  fade-in/out, remover silêncio, detectar nota, **encontrar loop automaticamente** e crossfade da emenda.
+- **Desfazer/refazer**, salvar/abrir projeto (`.xpsinst`) e “Editar no Criador” para abrir qualquer NKI/SF2/SFZ
+  convertido.
+- **Exportação:** SVZ com até 4 camadas de velocidade (mono) ou 2 (estéreo); NKI no formato Kontakt 1 (abre em todas
+  as versões do Kontakt) com pasta de WAVs; SF2 com amostras embutidas, faixas, loops e envelopes; SFZ + WAVs.
+
+### Conversor
 
 | Etapa | Recursos |
 |---|---|
@@ -95,5 +114,8 @@ packaging/         configuração do PyInstaller e ícones
 ```
 
 ## Licença
-Os módulos `xps_studio/core/kontakt5.py`, `ncw.py` e `svz.py` (e os modelos em `xps_studio/assets/svz/`) derivam do
+Os módulos `xps_studio/core/kontakt5.py`, `ncw.py`, `svz.py` e `exporters.py` (gravação de NKI) e os modelos em
+`xps_studio/assets/svz/` e `xps_studio/assets/nki/` derivam do
 [ConvertWithMoss](https://github.com/git-moss/ConvertWithMoss) e seguem a **LGPL-3.0** (veja `LICENSE-LGPL-3.0.txt`).
+
+A fonte Inter (`xps_studio/assets/fonts`) é distribuída sob a SIL Open Font License (veja `LICENSE-Inter-OFL.txt`).

@@ -83,9 +83,37 @@ class Zone:
     loop_on: bool = False
     gain_db: float = 0.0
     pan: float = 0.0   # -1..1
+    group: int = 0     # índice da camada (Instrument.groups)
+    start: int = 0     # início de reprodução (frames)
+    end: int = 0       # fim de reprodução (frames, exclusivo); 0 = fim da amostra
+    reverse: bool = False
 
     def copy(self) -> "Zone":
         return Zone(**{k: getattr(self, k) for k in self.__dataclass_fields__})
+
+    def play_end(self) -> int:
+        n = self.sample.frames
+        return min(n, self.end) if self.end and self.end > 0 else n
+
+
+@dataclass
+class Group:
+    """Camada (grupo do Kontakt / layer): parâmetros e envelope de amplitude comuns às zonas."""
+    name: str = "Camada 1"
+    gain_db: float = 0.0
+    pan: float = 0.0
+    tune_cents: float = 0.0
+    attack: float = 0.002   # segundos
+    hold: float = 0.0
+    decay: float = 1.0
+    sustain: float = 1.0    # 0..1
+    release: float = 0.25
+    mute: bool = False
+    solo: bool = False
+    color: int = 0
+
+    def copy(self) -> "Group":
+        return Group(**{k: getattr(self, k) for k in self.__dataclass_fields__})
 
 
 @dataclass
@@ -95,10 +123,26 @@ class Instrument:
     source_format: str = ""
     zones: List[Zone] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)   # avisos para o usuário
+    groups: List[Group] = field(default_factory=lambda: [Group()])
 
     def velocity_layers(self) -> List[tuple]:
         layers = sorted({(z.lo_vel, z.hi_vel) for z in self.zones})
         return layers
+
+    def group_of(self, z: Zone) -> Group:
+        if not self.groups:
+            self.groups.append(Group())
+        return self.groups[max(0, min(len(self.groups) - 1, z.group))]
+
+    def audible_zones(self) -> List[Zone]:
+        solo = any(g.solo for g in self.groups)
+        out = []
+        for z in self.zones:
+            g = self.group_of(z)
+            if (solo and not g.solo) or (not solo and g.mute):
+                continue
+            out.append(z)
+        return out
 
 
 class ConversionError(Exception):

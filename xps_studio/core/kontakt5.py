@@ -24,7 +24,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .model import ConversionError, Instrument, Sample, Zone
+from .model import ConversionError, Group, Instrument, Sample, Zone
 
 # ---------------------------------------------------------------------------
 # Utilidades de leitura
@@ -571,6 +571,8 @@ def load_kontakt5(path: str, index_files: Callable[[], Dict[str, str]], read_aud
                 zones.append(kz)
 
     inst = Instrument(pname or os.path.splitext(os.path.basename(path))[0], path, label)
+    inst.groups = []
+    gmap: Dict[int, int] = {}
     solo = any(g and g.soloed for g in groups)
     idx: Optional[Dict[str, str]] = None
     cache: Dict[str, Tuple[np.ndarray, int]] = {}
@@ -647,6 +649,9 @@ def load_kontakt5(path: str, index_files: Callable[[], Dict[str, str]], read_aud
         smp = Sample(os.path.splitext(fname)[0], None, kz.rate or 44100, ls, le,
                      loader=make_loader(key, src, kz.start, kz.end_trim),
                      frames=frames, channels=max(1, kz.channels))
+        if kz.group not in gmap:
+            gmap[kz.group] = len(inst.groups)
+            inst.groups.append(Group(g.name if g and g.name else f"Grupo {kz.group + 1}", color=len(inst.groups)))
         gv = g.volume if g else 1.0
         gt = g.tune if g else 1.0
         gp = g.pan if g else 0.0
@@ -654,8 +659,11 @@ def load_kontakt5(path: str, index_files: Callable[[], Dict[str, str]], read_aud
             smp, root=max(0, min(127, kz.root)), lo_key=min(127, kz.lo_key), hi_key=min(127, kz.hi_key),
             lo_vel=min(127, kz.lo_vel), hi_vel=min(127, kz.hi_vel),
             tune_cents=_cents(kz.tune, gt, ptune), loop_on=loop_on,
-            gain_db=max(-60.0, _db(kz.volume * gv * pvol)), pan=max(-1.0, min(1.0, kz.pan + gp))))
+            gain_db=max(-60.0, _db(kz.volume * gv * pvol)), pan=max(-1.0, min(1.0, kz.pan + gp)),
+            group=gmap[kz.group]))
 
+    if not inst.groups:
+        inst.groups = [Group()]
     if skipped_release:
         inst.notes.append(f"{skipped_release} zona(s) de release (soltar a tecla) foram ignoradas.")
     if missing:

@@ -9,7 +9,7 @@ from typing import List, Optional
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, QSettings, Qt, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QApplication, QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
                                QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
@@ -21,6 +21,10 @@ from ..core.loader import FILTER, SUPPORTED, load_instrument
 from ..core.model import ConversionError, Instrument, note_name
 from . import theme as T
 from .widgets import EQCurve, KeyboardMap, MemoryMeter, Waveform
+from .common import Job, Player, card, label, row, stat, note_combo
+from .icons import icon, qsize
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QStatusBar
 
 APP_NAME = "XPS Sample Studio"
 
@@ -33,131 +37,6 @@ EQ_PRESETS = {
 }
 
 
-# ----------------------------------------------------------------------------
-# Execução em segundo plano
-# ----------------------------------------------------------------------------
-
-class _Signals(QObject):
-    done = Signal(object)
-    error = Signal(str)
-    progress = Signal(int, int)
-
-
-class Job(QRunnable):
-    def __init__(self, fn, *args, **kw):
-        super().__init__()
-        self.fn, self.args, self.kw = fn, args, kw
-        self.s = _Signals()
-
-    def run(self):
-        try:
-            self.s.done.emit(self.fn(*self.args, **self.kw))
-        except ConversionError as e:
-            self.s.error.emit(str(e))
-        except Exception as e:  # noqa
-            traceback.print_exc()
-            self.s.error.emit(f"Erro inesperado: {e}")
-
-
-class Player:
-    """Reprodução simples via QtMultimedia (arquivo WAV temporário)."""
-
-    def __init__(self):
-        self.ok = False
-        self._init_done = False
-        self.tmp = tempfile.mkdtemp(prefix="xpsstudio_")
-        self.n = 0
-
-    def _ensure(self):
-        """Cria o player só no primeiro uso (abre o programa mais rápido e evita falhas sem placa de som)."""
-        if self._init_done:
-            return
-        self._init_done = True
-        if os.environ.get("XPS_NO_AUDIO"):
-            return
-        try:
-            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-            self.out = QAudioOutput()
-            self.out.setVolume(0.9)
-            self.player = QMediaPlayer()
-            self.player.setAudioOutput(self.out)
-            self.ok = True
-        except Exception:
-            self.ok = False
-
-    def play(self, data: np.ndarray, rate: int):
-        self._ensure()
-        if not self.ok or data is None or len(data) == 0:
-            return
-        self.n += 1
-        path = os.path.join(self.tmp, f"p{self.n % 4}.wav")
-        self.player.stop()
-        self.player.setSource(QUrl())
-        A.write_wav16(path, np.clip(data, -1, 1), rate, dither=False)
-        self.player.setSource(QUrl.fromLocalFile(path))
-        self.player.play()
-
-    def stop(self):
-        if self.ok:
-            self.player.stop()
-
-
-# ----------------------------------------------------------------------------
-# Auxiliares de layout
-# ----------------------------------------------------------------------------
-
-def card(*widgets, spacing=12, margins=18) -> QFrame:
-    f = QFrame()
-    f.setObjectName("card")
-    lay = QVBoxLayout(f)
-    lay.setContentsMargins(margins, margins, margins, margins)
-    lay.setSpacing(spacing)
-    for w in widgets:
-        (lay.addLayout if hasattr(w, "addWidget") and not isinstance(w, QWidget) else lay.addWidget)(w)
-    return f
-
-
-def label(text, name=None, wrap=False) -> QLabel:
-    l = QLabel(text)
-    if name:
-        l.setObjectName(name)
-    l.setWordWrap(wrap)
-    return l
-
-
-def row(*items, spacing=10) -> QHBoxLayout:
-    h = QHBoxLayout()
-    h.setSpacing(spacing)
-    for it in items:
-        if it is None:
-            h.addStretch(1)
-        elif isinstance(it, QWidget):
-            h.addWidget(it)
-        else:
-            h.addLayout(it)
-    return h
-
-
-def stat(value: str, caption: str):
-    w = QWidget()
-    v = QVBoxLayout(w)
-    v.setContentsMargins(0, 0, 0, 0)
-    v.setSpacing(2)
-    a = label(value, "stat")
-    v.addWidget(a)
-    v.addWidget(label(caption, "statLabel"))
-    return w, a
-
-
-def note_combo(default: int) -> QComboBox:
-    c = QComboBox()
-    for n in range(0, 128):
-        c.addItem(note_name(n), n)
-    c.setCurrentIndex(default)
-    c.setMaxVisibleItems(16)
-    return c
-
-
 class DropZone(QFrame):
     dropped = Signal(str)
 
@@ -168,9 +47,9 @@ class DropZone(QFrame):
         self.setMinimumHeight(230)
         v = QVBoxLayout(self)
         v.setAlignment(Qt.AlignCenter)
-        icon = label("⬇", None)
-        icon.setStyleSheet(f"font-size:40px;color:{T.ACCENT};")
-        icon.setAlignment(Qt.AlignCenter)
+        icon_l = QLabel()
+        icon_l.setPixmap(icon("import", T.ACCENT, 40).pixmap(40, 40))
+        icon_l.setAlignment(Qt.AlignCenter)
         t = label("Arraste aqui seu instrumento", "h2")
         t.setAlignment(Qt.AlignCenter)
         s = label("Kontakt .nki  ·  SoundFont .sf2  ·  .sfz  ·  WAV  ·  pasta de WAVs", "muted")
@@ -178,7 +57,7 @@ class DropZone(QFrame):
         self.b_file = QPushButton("Abrir arquivo…")
         self.b_file.setObjectName("primary")
         self.b_dir = QPushButton("Abrir pasta de WAVs…")
-        v.addWidget(icon)
+        v.addWidget(icon_l)
         v.addWidget(t)
         v.addWidget(s)
         v.addSpacing(10)
@@ -212,8 +91,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1280, 820)
-        self.setMinimumSize(1060, 700)
+        self.setMinimumSize(1100, 720)
+        scr = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        if scr and scr.width() > 1300:
+            self.resize(min(1600, int(scr.width() * 0.92)), min(1000, int(scr.height() * 0.92)))
+        else:
+            self.resize(1280, 820)
         self.settings = QSettings("XPSSampleStudio", "XPSSampleStudio")
         self.pool = QThreadPool.globalInstance()
         self.player = Player()
@@ -242,32 +125,63 @@ class MainWindow(QMainWindow):
             sc.viewport().setObjectName("page")
             sc.setWidget(page)
             self.stack.addWidget(sc)
-        self.go(0)
+        from .builder import BuilderPage
+        self.builder = BuilderPage(self.player, self.error)
+        self.builder.message.connect(self.toast)
+        self.stack.addWidget(self.builder)
+        sb = QStatusBar()
+        sb.setSizeGripEnabled(False)
+        sb.setStyleSheet(f"QStatusBar{{background:{T.PANEL};color:{T.MUTED};border-top:1px solid {T.BORDER_SOFT};}}"
+                         "QStatusBar::item{border:none;}")
+        self.setStatusBar(sb)
+        self.go(int(self.settings.value("last_page", 0)) if int(self.settings.value("last_page", 0)) == 4 else 0)
         self._update_enabled()
+
+    def toast(self, msg: str):
+        self.statusBar().showMessage("  " + msg, 7000)
 
     # ------------------------------------------------------------------ sidebar
     def _sidebar(self):
         w = QWidget()
         w.setObjectName("sidebar")
-        w.setFixedWidth(250)
+        w.setFixedWidth(224)
         v = QVBoxLayout(w)
-        v.setContentsMargins(18, 22, 18, 18)
-        v.setSpacing(6)
-        logo = QLabel("◆")
-        logo.setStyleSheet(f"font-size:26px;color:{T.ACCENT};")
-        v.addLayout(row(logo, self._brand(), None))
-        v.addSpacing(24)
+        v.setContentsMargins(14, 20, 14, 16)
+        v.setSpacing(3)
+        logo = QLabel()
+        logo.setPixmap(QIcon(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icon.png")).pixmap(34, 34))
+        v.addLayout(row(logo, self._brand(), None, spacing=10))
+        v.addSpacing(22)
         self.nav = []
         grp = QButtonGroup(self)
-        for i, (ico, txt) in enumerate([("①", "Importar"), ("②", "Mapa de teclas"), ("③", "Som e EQ"), ("④", "Exportar")]):
-            b = QPushButton(f"  {ico}   {txt}")
+        items = [("section", "CONVERTER"), ("import", "Importar"), ("piano", "Mapa de teclas"), ("sliders", "Som e EQ"),
+                 ("export", "Exportar"), ("section", "CRIAR"), ("layers", "Criar instrumento")]
+        k = 0
+        for ic, txt in items:
+            if ic == "section":
+                if k:
+                    v.addSpacing(14)
+                lab = label(txt, "section")
+                lab.setContentsMargins(10, 0, 0, 4)
+                v.addWidget(lab)
+                continue
+            b = QPushButton("  " + txt)
             b.setObjectName("nav")
+            b.setIcon(icon(ic, T.MUTED))
+            b.setIconSize(qsize(17))
             b.setCheckable(True)
-            b.clicked.connect(lambda _=False, k=i: self.go(k))
+            b.clicked.connect(lambda _=False, i=k: self.go(i))
             grp.addButton(b)
             v.addWidget(b)
             self.nav.append(b)
+            k += 1
         v.addStretch(1)
+        self.conv_opts = QWidget()
+        cv = QVBoxLayout(self.conv_opts)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(4)
+        v.addWidget(self.conv_opts)
+        v = cv
         v.addWidget(label("TECLADO DE DESTINO", "brandSub"))
         self.target_cb = QComboBox()
         for t in E.TARGETS.values():
@@ -299,20 +213,31 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(label("XPS Sample Studio", "brand"))
-        v.addWidget(label("NKI · SF2 → ROLAND XPS", "brandSub"))
+        v.addWidget(label("SAMPLE TOOLKIT", "brandSub"))
         return w
 
     def go(self, i):
-        if i > 0 and not self.inst:
+        if 0 < i < 4 and not self.inst:
             i = 0
         self.stack.setCurrentIndex(i)
         self.nav[i].setChecked(True)
+        for j, b in enumerate(self.nav):
+            ic = ["import", "piano", "sliders", "export", "layers"][j]
+            b.setIcon(icon(ic, T.ACCENT if j == i else T.MUTED))
+        self.conv_opts.setVisible(i < 4)
+        self.settings.setValue("last_page", i)
         if i == 3:
             self._refresh_export()
 
     def _update_enabled(self):
-        for b in self.nav[1:]:
+        for b in self.nav[1:4]:
             b.setEnabled(self.inst is not None)
+
+    def edit_in_builder(self):
+        if not self.inst:
+            return
+        self.builder.load_instrument(self.inst)
+        self.go(4)
 
     @property
     def target(self) -> E.Target:
@@ -386,8 +311,14 @@ class MainWindow(QMainWindow):
         self.b_next1.setObjectName("primary")
         self.b_next1.clicked.connect(lambda: self.go(1))
         self.b_next1.setEnabled(False)
+        self.b_edit = QPushButton("  Editar no Criador")
+        self.b_edit.setIcon(icon("layers"))
+        self.b_edit.setToolTip("Abre o instrumento no Criador para editar zonas, camadas e amostras, "
+                               "e exportar para XPS-10X, Kontakt, SF2 ou SFZ.")
+        self.b_edit.clicked.connect(self.edit_in_builder)
+        self.b_edit.setEnabled(False)
         info = card(self.info_name, self.info_meta, row(s1, s2, s3, None, spacing=36), self.info_notes,
-                    row(None, self.b_next1))
+                    row(None, self.b_edit, self.b_next1))
         h.addWidget(info, 3)
         # presets SF2
         self.preset_search = QLineEdit()
@@ -400,8 +331,9 @@ class MainWindow(QMainWindow):
         self.preset_card.hide()
         h.addWidget(self.preset_card, 2)
         v.addLayout(h)
-        tip = label("Dica: instrumentos do Kontakt 5 a 8 podem ser convertidos para .sfz no ConvertWithMoss "
-                    "(gratuito) e abertos aqui. Bibliotecas protegidas não podem ser convertidas.", "muted", wrap=True)
+        tip = label("Kontakt 1 a 8 (inclusive amostras .ncw e monólitos), SoundFont e SFZ são lidos diretamente. "
+                    "Bibliotecas protegidas (Kontakt Player) não podem ser convertidas. Para editar camadas e amostras "
+                    "ou exportar para Kontakt/SF2, use “Editar no Criador”.", "muted", wrap=True)
         v.addWidget(tip)
         v.addStretch(1)
         return p
@@ -477,6 +409,7 @@ class MainWindow(QMainWindow):
         self.st_samples.setText(str(len({id(z.sample) for z in inst.zones})))
         self.info_notes.setText("\n".join("⚠ " + n for n in inst.notes[:6]))
         self.b_next1.setEnabled(True)
+        self.b_edit.setEnabled(True)
         # faixa de velocidade padrão: a camada mais forte que cubra 100
         self.vel_slider.setValue(100)
         roots = [z.root for z in inst.zones]
